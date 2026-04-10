@@ -83,7 +83,7 @@ def create_pdf(df, class_name, report_date, filter_status, is_all_time=False):
     return bytes(pdf.output())
 
 # --- CUSTOM STYLING ---
-st.set_page_config(page_title="Attendify",page_icon="Aicon.png" layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Attendify",page_icon="Aicon.png", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
     <style>
