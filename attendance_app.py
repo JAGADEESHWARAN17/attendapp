@@ -16,11 +16,10 @@ def init_db():
     c = conn.cursor()
     c.execute('CREATE TABLE IF NOT EXISTS classes (id INTEGER PRIMARY KEY, branch TEXT, section TEXT)')
     
-    # FIX: Changed UNIQUE(reg_no) to UNIQUE(class_id, reg_no)
+    # "name" column removed to identify students strictly by reg_no
     c.execute('''CREATE TABLE IF NOT EXISTS students (
                     id INTEGER PRIMARY KEY, 
                     class_id INTEGER, 
-                    name TEXT, 
                     reg_no TEXT, 
                     UNIQUE(class_id, reg_no)
                  )''')
@@ -39,16 +38,16 @@ def create_pdf(df, class_name, report_date, filter_status, is_all_time=False):
     pdf.set_font("Arial", 'B', 16)
     pdf.cell(0, 10, f"{class_name} Attendance List", ln=True, align='C')
     pdf.ln(5)
-    w_reg = 40
-    w_name = 110
-    w_status = 40
+    
+    # Adjusted widths to fill space without the Name column
+    w_reg = 95
+    w_status = 95
 
     def draw_header():
         pdf.set_font("Arial", 'B', 10)
         pdf.set_fill_color(0, 31, 63)
         pdf.set_text_color(255, 255, 255)
         pdf.cell(w_reg, 10, "Reg No", border=1, fill=True, align='C')
-        pdf.cell(w_name, 10, "Student Name", border=1, fill=True, align='C')
         pdf.cell(w_status, 10, "Status", border=1, fill=True, align='C')
         pdf.ln()
         pdf.set_text_color(0, 0, 0)
@@ -61,7 +60,6 @@ def create_pdf(df, class_name, report_date, filter_status, is_all_time=False):
         pdf.set_font("Arial", size=10)
         for _, row in df.iterrows():
             pdf.cell(w_reg, 9, str(row['Reg No']), border=1, align='C')
-            pdf.cell(w_name, 9, f" {str(row['Name'])}", border=1, align='L')
             pdf.cell(w_status, 9, str(row['Status']), border=1, align='C')
             pdf.ln()
     else:
@@ -75,7 +73,6 @@ def create_pdf(df, class_name, report_date, filter_status, is_all_time=False):
             date_df = df[df['Date'] == d]
             for _, row in date_df.iterrows():
                 pdf.cell(w_reg, 9, str(row['Reg No']), border=1, align='C')
-                pdf.cell(w_name, 9, f" {str(row['Name'])}", border=1, align='L')
                 pdf.cell(w_status, 9, str(row['Status']), border=1, align='C')
                 pdf.ln()
             pdf.ln(5)
@@ -83,7 +80,8 @@ def create_pdf(df, class_name, report_date, filter_status, is_all_time=False):
     return bytes(pdf.output())
 
 # --- CUSTOM STYLING ---
-st.set_page_config(page_title="Attendify",page_icon="Aicon.png", layout="wide", initial_sidebar_state="expanded")
+# initial_sidebar_state set to "collapsed" to hide it automatically on load
+st.set_page_config(page_title="Attendify",page_icon="Aicon.png", layout="wide", initial_sidebar_state="collapsed")
 
 st.markdown("""
     <style>
@@ -96,6 +94,7 @@ st.markdown("""
         padding: 30px; border-radius: 15px; color: white !important; margin-bottom: 25px;
     }
     .greeting-box h1, .greeting-box p, .greeting-box h3 { color: white !important; }
+    
     /* --- BULLETPROOF STUDENT CARD TEXT COLOR --- */
     .student-card, 
     .student-card p, 
@@ -111,9 +110,7 @@ st.markdown("""
     section[data-testid="stSidebar"] label,
     section[data-testid="stSidebar"] p { color: white !important; }
 
-    /* ============================================================
-       ALL BUTTONS — Gradient Navy Blue + White Text + Blur on Click
-       ============================================================ */
+    /* ALL BUTTONS */
     div.stButton > button,
     div.stDownloadButton > button,
     div.stFormSubmitButton > button {
@@ -151,10 +148,7 @@ st.markdown("""
         background-image: linear-gradient(to right, #003366, #001f3f) !important;
     }
     
-
-    /* ============================================================
-       SIDEBAR COLLAPSE BUTTON — Always visible, gradient navy + white arrow
-       ============================================================ */
+    /* SIDEBAR COLLAPSE BUTTON */
     button[data-testid="stSidebarCollapseButton"] {
         background-image: linear-gradient(to right, #001f3f, #003366) !important;
         background-color: transparent !important;
@@ -233,7 +227,10 @@ elif choice == "Add New Class":
         branch = st.text_input("Branch").upper()
         section = st.text_input("Section").upper()
         if st.form_submit_button("Create Class"):
-            if dept and branch and section:
+            # Strict validation for single caps alphabet
+            if not (len(section) == 1 and section.isalpha() and section.isupper()):
+                st.error("Section must be a single capital letter (e.g., A, B, C).")
+            elif dept and branch and section:
                 fb, fs = f"{dept} {branch}", section
                 conn = get_db_connection()
                 if conn.execute("SELECT id FROM classes WHERE branch=? AND section=?", (fb, fs)).fetchone():
@@ -257,24 +254,23 @@ elif choice == "Add Student":
         sel_class = st.selectbox("Assign to Class", opts, index=opts.index(st.session_state.last_selected_class))
         st.session_state.last_selected_class = sel_class
         with st.form("add_student_form", clear_on_submit=True):
-            sn = st.text_input("Full Name")
             rn = st.text_input("Registration Number")
             if st.form_submit_button("Save Student"):
-                if sn.strip() and rn.strip():
+                if rn.strip():
                     current_class_id = class_map[sel_class]
-                    if conn.execute("SELECT name FROM students WHERE reg_no=? AND class_id=?", (rn, current_class_id)).fetchone():
+                    if conn.execute("SELECT id FROM students WHERE reg_no=? AND class_id=?", (rn, current_class_id)).fetchone():
                         st.error(f"Reg No {rn} already exists in {sel_class}!")
                     else:
-                        conn.execute("INSERT INTO students (class_id, name, reg_no) VALUES (?,?,?)", (current_class_id, sn, rn))
-                        conn.commit(); st.success(f"{sn} Added!"); time.sleep(1); st.rerun()
+                        conn.execute("INSERT INTO students (class_id, reg_no) VALUES (?,?)", (current_class_id, rn))
+                        conn.commit(); st.success(f"Reg No {rn} Added!"); time.sleep(1); st.rerun()
     st.divider(); st.subheader("Student Directory")
     for cid, b, s in classes:
         count = conn.execute("SELECT COUNT(*) FROM students WHERE class_id=?", (cid,)).fetchone()[0]
         with st.expander(f"{b} {s} ({count} students)"):
-            students = conn.execute("SELECT id, name, reg_no FROM students WHERE class_id=? ORDER BY CAST(reg_no AS INTEGER) ASC", (cid,)).fetchall()
-            for sid, sn, sr in students:
+            students = conn.execute("SELECT id, reg_no FROM students WHERE class_id=? ORDER BY CAST(reg_no AS INTEGER) ASC", (cid,)).fetchall()
+            for sid, sr in students:
                 c1, c2 = st.columns([7, 1])
-                c1.write(f"**{sr}** - {sn}")
+                c1.write(f"**Roll No: {sr}**")
                 if c2.button("❌", key=f"del_{sid}"): conn.execute("DELETE FROM students WHERE id=?", (sid,)); conn.commit(); st.rerun()
     conn.close()
 
@@ -295,7 +291,7 @@ elif choice == "Take Attendance":
             if c1.button("Re-Take Attendance"): st.session_state.replace_confirmed = True; st.rerun()
             if c2.button("Go Back"): st.session_state.menu_choice = "Home"; st.rerun()
         else:
-            students = conn.execute("SELECT id, name, reg_no FROM students WHERE class_id=? ORDER BY CAST(reg_no AS INTEGER) ASC", (t_id,)).fetchall()
+            students = conn.execute("SELECT id, reg_no FROM students WHERE class_id=? ORDER BY CAST(reg_no AS INTEGER) ASC", (t_id,)).fetchall()
             if students:
                 if 'idx' not in st.session_state: st.session_state.idx = 0
                 if 'log' not in st.session_state: st.session_state.log = []
@@ -313,12 +309,9 @@ elif choice == "Take Attendance":
                             box-shadow: 0 8px 20px rgba(0,0,0,0.3); 
                             margin-bottom: 20px;
                         ">
-                            <h1 style="font-size: 3rem !important; margin-bottom: 10px !important; font-weight: 800; letter-spacing: 1px; text-shadow: 1px 1px 4px rgba(0,0,0,0.4);">
-                                {curr[1]}
+                            <h1 style="font-size: 3rem !important; margin-bottom: 20px !important; font-weight: 800; letter-spacing: 1px; text-shadow: 1px 1px 4px rgba(0,0,0,0.4);">
+                                Roll No: {curr[1]}
                             </h1>
-                            <p style="font-size: 1.5rem !important; font-weight: 500; margin-bottom: 20px !important;">
-                                Roll: {curr[2]}
-                            </p>
                             <div style="display: inline-block; background-color: rgba(255,255,255,0.1); padding: 8px 20px; border-radius: 50px; border: 1px solid rgba(255,255,255,0.2);">
                                 <span style="font-size: 1rem !important; font-weight: bold; letter-spacing: 1.5px;">
                                     STUDENT {st.session_state.idx + 1} OF {len(students)}
@@ -327,7 +320,6 @@ elif choice == "Take Attendance":
                         </div>
                     """, unsafe_allow_html=True)
                     # ----------------------------------------
-                    
                     
                     _, c1, c2, c3, _ = st.columns([2, 2, 2, 2, 0.5])
                     if c1.button("✅ PRESENT"): st.session_state.log.append((curr[0], "Present")); st.session_state.idx += 1; st.rerun()
@@ -345,6 +337,16 @@ elif choice == "Take Attendance":
 
 # --- 5. VIEW ATTENDANCE ---
 elif choice == "View Attendance":
+    # Inject scoped CSS specifically for this page to reduce layout font sizes
+    st.markdown("""
+        <style>
+        /* Zoom out the canvas table wrapper to scale down its contents */
+        [data-testid="stDataEditor"] > div { zoom: 0.85; }
+        /* Reduce font sizes on general page elements in this block */
+        .stSelectbox label, .stDateInput label { font-size: 0.85rem !important; }
+        </style>
+    """, unsafe_allow_html=True)
+
     st.header("History")
     col1, col2, col3 = st.columns([2, 2, 2])
     v_date = col1.date_input("Select Date", now)
@@ -356,8 +358,7 @@ elif choice == "View Attendance":
         target = col2.selectbox("Select Class", list(class_map.keys()))
         status_filter = col3.selectbox("Filter Status", ["All", "Present", "Absent", "OD"])
         
-        # FIX: We now fetch a.id to enable updates in the database
-        query = "SELECT a.id as 'ID', s.reg_no as 'Reg No', s.name as 'Name', a.status as 'Status' FROM attendance a JOIN students s ON a.student_id = s.id WHERE s.class_id = ? AND a.date = ?"
+        query = "SELECT a.id as 'ID', s.reg_no as 'Reg No', a.status as 'Status' FROM attendance a JOIN students s ON a.student_id = s.id WHERE s.class_id = ? AND a.date = ?"
         params = [class_map[target], v_date.strftime("%Y-%m-%d")]
         
         if status_filter != "All": 
@@ -368,17 +369,13 @@ elif choice == "View Attendance":
         df = pd.read_sql_query(query, conn, params=params)
         
         if not df.empty:
-            
-            
-            # Using data_editor for an elegant inline editing experience
             edited_df = st.data_editor(
                 df,
                 hide_index=True,
                 use_container_width=True,
                 column_config={
-                    "ID": None, # Hide the database primary key from the user
+                    "ID": None, 
                     "Reg No": st.column_config.TextColumn("Reg No", disabled=True),
-                    "Name": st.column_config.TextColumn("Name", disabled=True),
                     "Status": st.column_config.SelectboxColumn(
                         "Status",
                         help="Click the pencil icon to edit",
@@ -388,45 +385,6 @@ elif choice == "View Attendance":
                 }
             )
             
-            # Detect changes and show a save button
             if not df.equals(edited_df):
                 if st.button("Save Changes"):
-                    # Find which rows were changed
-                    diff = edited_df[edited_df['Status'] != df['Status']]
-                    for _, row in diff.iterrows():
-                        conn.execute("UPDATE attendance SET status=? WHERE id=?", (row['Status'], row['ID']))
-                    conn.commit()
-                    st.success("Changes saved successfully!")
-                    time.sleep(1)
-                    st.rerun()
-
-            st.divider(); st.subheader("📥 Export Options")
-            ec1, ec2 = st.columns(2)
-            
-            # Note: create_pdf ignores the hidden 'ID' column automatically because it specifically asks for 'Reg No', 'Name', etc.
-            pdf_bytes = create_pdf(edited_df, target, v_date.strftime('%d-%m-%Y'), status_filter)
-            ec1.download_button(label="📄 Download Today's Attendance", data=pdf_bytes, file_name=f"{target}_{v_date}.pdf", mime="application/pdf")
-            
-            all_query = """SELECT a.date as 'Date', s.reg_no as 'Reg No', s.name as 'Name', a.status as 'Status'
-                           FROM attendance a JOIN students s ON a.student_id = s.id
-                           WHERE s.class_id = ? ORDER BY a.date DESC, CAST(s.reg_no AS INTEGER) ASC"""
-            all_df = pd.read_sql_query(all_query, conn, params=[class_map[target]])
-            
-            if not all_df.empty:
-                all_pdf_bytes = create_pdf(all_df, target, "All Time", "All", is_all_time=True)
-                ec2.download_button(label="📄 Export All Time Attendance", data=all_pdf_bytes, file_name=f"{target}_Full_History.pdf", mime="application/pdf")
-            else:
-                ec2.info("No history to export.")
-        else: 
-            st.info("No records.")
-    conn.close()
-
-# --- 6. REMOVE CLASS ---
-elif choice == "Remove Class":
-    st.header("🗑️ Remove Class")
-    conn = get_db_connection()
-    classes = conn.execute("SELECT id, branch, section FROM classes").fetchall()
-    for cid, b, s in classes:
-        if st.button(f"Delete {b} {s}", key=f"rm_{cid}"):
-            conn.execute("DELETE FROM classes WHERE id=?", (cid,)); conn.execute("DELETE FROM students WHERE class_id=?", (cid,)); conn.commit(); st.error("Deleted!"); time.sleep(1); st.rerun()
-    conn.close()
+                    diff = edited_df
