@@ -32,14 +32,6 @@ Attendance-App/
 ```
 
 
-## 📸 Screenshots
-
-Add screenshots of your application interface here:
-
-```
-Not Available...
-```
-
 ## 🎯 Purpose
 
 This project aims to provide a simple and efficient way to manage student attendance records using a modern web interface. It reduces manual work and helps maintain attendance data in a more organized manner.
